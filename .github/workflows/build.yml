@@ -3,6 +3,10 @@ name: Build GM Nginx (Tengine + Tongsuo)
 # 国密版 nginx 编译流水线
 # 产物：x86_64（CentOS 7 兼容，glibc 2.17）+ aarch64（麒麟 V10/UOS 兼容，glibc 2.28）
 # 组合：Tengine 2.4.1 + Tongsuo 8.2.1，模块 ngx_tongsuo_ntls（国密 NTLS）
+#
+# 设计说明：编译在旧 glibc 容器内进行（保证产物兼容老系统），
+# 产物通过挂载卷落到 runner 原生目录，上传 action 跑在原生环境
+# （规避 GitHub 将 action 强制到 Node 24 后与 centos:7 容器 glibc 2.17 不兼容的问题）
 
 on:
   workflow_dispatch: # 手动触发
@@ -11,102 +15,83 @@ jobs:
   # ============ x86_64：CentOS 7 服务器用 ============
   build-x86_64:
     runs-on: ubuntu-latest # x64 runner
-    container:
-      image: centos:7.9.2009 # glibc 2.17，产物可在 CentOS 7+ 运行
     steps:
-      - name: Fix CentOS 7 yum repos (EOL -> vault)
+      - name: Build in CentOS 7 container (glibc 2.17)
         run: |
-          sed -i 's/mirrorlist=/#mirrorlist=/g' /etc/yum.repos.d/CentOS-*.repo
-          sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
-
-      - name: Install build dependencies
-        run: yum -y install gcc gcc-c++ make pcre-devel zlib-devel perl wget tar
-
-      - name: Download sources
-        run: |
-          wget -c https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz -O tengine-2.4.1.tar.gz
-          wget -c https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz -O Tongsuo-8.2.1.tar.gz
-          tar xzf tengine-2.4.1.tar.gz
-          tar xzf Tongsuo-8.2.1.tar.gz
-
-      - name: Configure
-        run: |
-          cd tengine-2.4.1
-          ./configure --prefix=/usr/local/tengine \
-            --add-module=modules/ngx_tongsuo_ntls \
-            --with-openssl=../Tongsuo-8.2.1 \
-            --with-openssl-opt="enable-ntls" \
-            --with-http_ssl_module \
-            --with-http_realip_module \
-            --with-http_stub_status_module \
-            --with-http_gzip_static_module \
-            --with-stream \
-            --with-stream_ssl_module
-
-      - name: Make and install
-        run: |
-          cd tengine-2.4.1
-          make -j"$(nproc)"
-          make install
+          docker run --rm -v "$PWD:/work" -w /work centos:7.9.2009 bash -c '
+            set -e
+            sed -i "s/mirrorlist=/#mirrorlist=/g" /etc/yum.repos.d/CentOS-*.repo
+            sed -i "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*.repo
+            yum -y install gcc gcc-c++ make pcre-devel zlib-devel perl wget tar
+            wget -c https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz -O tengine-2.4.1.tar.gz
+            wget -c https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz -O Tongsuo-8.2.1.tar.gz
+            tar xzf tengine-2.4.1.tar.gz
+            tar xzf Tongsuo-8.2.1.tar.gz
+            cd tengine-2.4.1
+            ./configure --prefix=/work/install/tengine \
+              --add-module=modules/ngx_tongsuo_ntls \
+              --with-openssl=../Tongsuo-8.2.1 \
+              --with-openssl-opt="enable-ntls" \
+              --with-http_ssl_module \
+              --with-http_realip_module \
+              --with-http_stub_status_module \
+              --with-http_gzip_static_module \
+              --with-stream \
+              --with-stream_ssl_module
+            make -j"$(nproc)"
+            make install
+          '
 
       - name: Package artifact
         run: |
-          mkdir -p /out
-          tar czf /out/tengine-gm-2.4.1-x86_64-centos7-glibc217.tar.gz -C / usr/local/tengine
-          ls -lh /out
+          mkdir -p dist
+          tar czf dist/tengine-gm-2.4.1-x86_64-centos7-glibc217.tar.gz -C install tengine
+          ls -lh dist
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tengine-gm-x86_64
-          path: /out/*.tar.gz
+          path: dist/*.tar.gz
           retention-days: 30
 
   # ============ aarch64：麒麟 V10 / UOS 服务器用 ============
   build-aarch64:
     runs-on: ubuntu-24.04-arm # arm64 runner（公开仓库免费）
-    container:
-      image: almalinux:8 # glibc 2.28，与麒麟 V10（openEuler 20.03 系）二进制兼容
     steps:
-      - name: Install build dependencies
-        run: dnf -y install gcc gcc-c++ make pcre-devel zlib-devel perl wget tar
-
-      - name: Download sources
+      - name: Build in AlmaLinux 8 container (glibc 2.28)
         run: |
-          wget -c https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz -O tengine-2.4.1.tar.gz
-          wget -c https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz -O Tongsuo-8.2.1.tar.gz
-          tar xzf tengine-2.4.1.tar.gz
-          tar xzf Tongsuo-8.2.1.tar.gz
-
-      - name: Configure
-        run: |
-          cd tengine-2.4.1
-          ./configure --prefix=/usr/local/tengine \
-            --add-module=modules/ngx_tongsuo_ntls \
-            --with-openssl=../Tongsuo-8.2.1 \
-            --with-openssl-opt="enable-ntls" \
-            --with-http_ssl_module \
-            --with-http_realip_module \
-            --with-http_stub_status_module \
-            --with-http_gzip_static_module \
-            --with-stream \
-            --with-stream_ssl_module
-
-      - name: Make and install
-        run: |
-          cd tengine-2.4.1
-          make -j"$(nproc)"
-          make install
+          docker run --rm -v "$PWD:/work" -w /work almalinux:8 bash -c '
+            set -e
+            dnf -y install gcc gcc-c++ make pcre-devel zlib-devel perl wget tar
+            wget -c https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz -O tengine-2.4.1.tar.gz
+            wget -c https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz -O Tongsuo-8.2.1.tar.gz
+            tar xzf tengine-2.4.1.tar.gz
+            tar xzf Tongsuo-8.2.1.tar.gz
+            cd tengine-2.4.1
+            ./configure --prefix=/work/install/tengine \
+              --add-module=modules/ngx_tongsuo_ntls \
+              --with-openssl=../Tongsuo-8.2.1 \
+              --with-openssl-opt="enable-ntls" \
+              --with-http_ssl_module \
+              --with-http_realip_module \
+              --with-http_stub_status_module \
+              --with-http_gzip_static_module \
+              --with-stream \
+              --with-stream_ssl_module
+            make -j"$(nproc)"
+            make install
+          '
 
       - name: Package artifact
         run: |
-          mkdir -p /out
-          tar czf /out/tengine-gm-2.4.1-aarch64-kyv10-glibc228.tar.gz -C / usr/local/tengine
-          ls -lh /out
+          mkdir -p dist
+          tar czf dist/tengine-gm-2.4.1-aarch64-kyv10-glibc228.tar.gz -C install tengine
+          ls -lh dist
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tengine-gm-aarch64
-          path: /out/*.tar.gz
+          path: dist/*.tar.gz
           retention-days: 30
