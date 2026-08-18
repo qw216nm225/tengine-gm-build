@@ -92,6 +92,8 @@ jobs:
 
       - name: Package artifact
         run: |
+          # nginx 运行创建的 temp 目录属主为容器内 root，先归还权限再打包
+          sudo chown -R "$USER" install
           mkdir -p dist
           tar czf dist/tengine-gm-2.4.1-x86_64-centos7-glibc217.tar.gz -C install tengine
           ls -lh dist
