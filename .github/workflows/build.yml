@@ -118,11 +118,14 @@ jobs:
           #   libz.so.1     -> zlib1g（默认自带，显式安装保险）
           sudo apt-get install -y -qq gcc make libcrypt1 zlib1g
           #   libpcre.so.1 -> Ubuntu 24.04 已整体移除 libpcre3（PCRE1 EOL），apt 装不到。
-          #   改从 Ubuntu 22.04 存档 pool 直装 deb（仅运行库，ABI 兼容，CentOS 7 同款 PCRE1 系）。
-          #   文件名已本地探测确认：8.39-13ubuntu0.22.04.1 是 jammy-updates 现存版本
+          #   从 Ubuntu 22.04 存档 pool 下载 deb（文件名已本地探测确认），
+          #   用 dpkg -x 暴力解包 + 手动铺库 + ldconfig（绕开 dpkg -i 的安装逻辑）
           wget -q http://archive.ubuntu.com/ubuntu/pool/main/p/pcre3/libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb -O /tmp/libpcre3.deb
-          sudo dpkg -i /tmp/libpcre3.deb
-          ls -l /lib/x86_64-linux-gnu/libpcre.so.1
+          mkdir -p /tmp/pcre-extract
+          dpkg -x /tmp/libpcre3.deb /tmp/pcre-extract
+          sudo cp -a /tmp/pcre-extract/usr/lib/x86_64-linux-gnu/libpcre.so.1* /usr/lib/x86_64-linux-gnu/
+          sudo ldconfig
+          ls -l /usr/lib/x86_64-linux-gnu/libpcre.so.1
 
       - name: Build Tongsuo CLI (with NTLS)
         run: |
