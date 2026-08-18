@@ -128,7 +128,11 @@ jobs:
 
       - name: Verify local SM2 test certs
         run: |
+          # Tongsuo 安装版 CLI 的动态库：显式指向 install lib64 与源码树（防 rpath 缺失）
+          export LD_LIBRARY_PATH=/tmp/tongsuo-install/lib64:/tmp/tongsuo-install/lib:$PWD/Tongsuo-8.2.1
           OPENSSL=/tmp/tongsuo-install/bin/openssl
+          echo "=== CLI 自检 ==="
+          $OPENSSL version || { echo "install 版 CLI 不可用，尝试源码树版"; OPENSSL=$PWD/Tongsuo-8.2.1/apps/openssl; $OPENSSL version; }
           ls -lh test-certs/
           echo "=== 证书算法检查（需为 SM2-with-SM3）==="
           for f in test-certs/sign.pem test-certs/enc.pem; do
@@ -176,7 +180,9 @@ jobs:
 
       - name: GM handshake via Tongsuo client
         run: |
+          export LD_LIBRARY_PATH=/tmp/tongsuo-install/lib64:/tmp/tongsuo-install/lib:$PWD/Tongsuo-8.2.1
           OPENSSL=/tmp/tongsuo-install/bin/openssl
+          $OPENSSL version || { OPENSSL=$PWD/Tongsuo-8.2.1/apps/openssl; }
           echo | $OPENSSL s_client -connect 127.0.0.1:8443 -servername localhost \
             -cipher "ECC-SM2-SM4-GCM-SM3:ECC-SM2-SM4-CBC-SM3:ECDHE-SM2-WITH-SM4-SM3" \
             2>&1 | tee /tmp/handshake.log | grep -E "Protocol|Cipher|New,|subject|issuer" | head -10
