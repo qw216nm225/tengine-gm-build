@@ -62,15 +62,15 @@ jobs:
             echo "=== 自测 3/3：国密握手（Tongsuo CLI，TLS1.3 与 TLS1.2 各试一次）==="
             export LD_LIBRARY_PATH=/work/Tongsuo-8.2.1
             PASS=0
-            # Tongsuo NTLS 为全自动握手：指定国密 cipher 后 SM2 交换与签名自动启用
-            # （Tongsuo 8.2.1 s_client 无 -sigalgs 选项；官方测试姿势即裸 -cipher）
+            # 关键：TLS1.3 套件必须用 -ciphersuites（-cipher 只作用于 TLS1.2 及以下）
             echo | /work/Tongsuo-8.2.1/apps/openssl s_client -connect 127.0.0.1:8443 -servername localhost \
-              -tls1_3 -brief -cipher "ECC-SM2-SM4-GCM-SM3:ECC-SM2-SM4-CBC-SM3" \
+              -tls1_3 -groups SM2 -brief \
+              -ciphersuites "ECC-SM2-SM4-GCM-SM3:ECC-SM2-SM4-CBC-SM3" \
               > /work/handshake-tls13.log 2>&1 && PASS=1 || true
             # 尝试 2：TLS 1.2 国密套件
             if [ "$PASS" != "1" ]; then
               echo | /work/Tongsuo-8.2.1/apps/openssl s_client -connect 127.0.0.1:8443 -servername localhost \
-                -tls1_2 -brief -cipher "ECDHE-SM2-WITH-SM4-SM3" \
+                -tls1_2 -groups SM2 -brief -cipher "ECDHE-SM2-WITH-SM4-SM3" \
                 > /work/handshake-tls12.log 2>&1 && PASS=1 || true
             fi
             if [ "$PASS" = "1" ]; then
