@@ -74,7 +74,7 @@ jobs:
               echo "FAIL: 未协商出国密套件"
               echo "--- 客户端 TLS1.3 尝试 ---"; grep -E "Cipher|alert|error" /work/handshake-tls13.log | head -5
               echo "--- 客户端 TLS1.2 尝试 ---"; grep -E "Cipher|alert|error" /work/handshake-tls12.log | head -5
-              echo "--- 服务器 error log ---"; cat /work/install/tengine/logs/error.log | tail -10
+              echo "--- 服务器 error log ---"; tail -30 /work/install/tengine/logs/error.log
               exit 1
             fi
           '
