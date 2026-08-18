@@ -216,6 +216,8 @@ jobs:
 
       - name: 步骤5a 演练：nginx -t 配置检查
         run: |
+          # Debian 系无 nobody 组（nginx 默认 worker 用户组），CentOS 7/麒麟均自带，此处仅为演练环境补齐
+          sudo groupadd nobody || true
           sudo /usr/local/tengine/sbin/nginx -t -p /usr/local/tengine
 
       - name: 步骤5b 演练：systemd 单元语法校验（runner 无 systemd 运行环境）
