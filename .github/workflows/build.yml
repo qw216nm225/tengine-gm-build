@@ -186,15 +186,11 @@ jobs:
           # 仅在缺失时安装（保留错误输出便于诊断）
           [ -e /lib/x86_64-linux-gnu/libcrypt.so.1 ] && echo "libcrypt.so.1 已存在" || sudo apt-get install -y libcrypt1
           [ -e /usr/lib/x86_64-linux-gnu/libz.so.1 ] && echo "libz.so.1 已存在" || sudo apt-get install -y zlib1g
-          # libpcre.so.1：Ubuntu 24.04 已移除 libpcre3 包，从 22.04 存档 deb 解包安装（下载带重试）
-          for i in 1 2 3; do
-            wget -q http://archive.ubuntu.com/ubuntu/pool/main/p/pcre3/libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb -O /tmp/libpcre3.deb && break || { echo "deb 下载第 $i 次失败，重试"; sleep 5; }
-          done
-          ls -lh /tmp/libpcre3.deb
-          mkdir -p /tmp/pcre-extract
-          dpkg -x /tmp/libpcre3.deb /tmp/pcre-extract
-          # 22.04 deb 内部路径可能是 /lib/ 前缀，用 find 自适应定位所有 libpcre.so.1* 文件
-          sudo find /tmp/pcre-extract -name "libpcre.so.1*" -exec cp -a {} /usr/lib/x86_64-linux-gnu/ \;
+          # libpcre.so.1：Debian/Ubuntu 的 libpcre3 deb 提供 libpcre.so.3（soname 不同，不可用）；
+          # 产物链接的 libpcre.so.1 需与编译容器同源（centos:7 的 pcre 8.32）
+          mkdir -p pcre-libs
+          docker run --rm -v "$PWD:/work" centos:7.9.2009 bash -c 'cp /usr/lib64/libpcre.so.1* /work/pcre-libs/'
+          sudo cp -a pcre-libs/libpcre.so.1* /usr/lib/x86_64-linux-gnu/
           sudo ldconfig
           ls -l /usr/lib/x86_64-linux-gnu/libpcre.so.1*
 
