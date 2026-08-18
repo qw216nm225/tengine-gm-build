@@ -124,12 +124,14 @@ jobs:
       - name: Generate self-signed SM2 certs
         run: |
           cd Tongsuo-8.2.1
-          ./apps/openssl ecparam -genkey -name SM2 -out /tmp/sign.key
-          ./apps/openssl req -new -x509 -days 365 -key /tmp/sign.key -out /tmp/sign.pem -subj "/CN=localhost" -md sm3
-          ./apps/openssl ecparam -genkey -name SM2 -out /tmp/enc.key
-          ./apps/openssl req -new -x509 -days 365 -key /tmp/enc.key -out /tmp/enc.pem -subj "/CN=localhost" -md sm3
+          make install_sw > /dev/null
+          OPENSSL=/tmp/tongsuo-install/bin/openssl
+          $OPENSSL ecparam -genkey -name SM2 -out /tmp/sign.key
+          $OPENSSL req -new -x509 -days 365 -key /tmp/sign.key -out /tmp/sign.pem -subj "/CN=localhost" -md sm3
+          $OPENSSL ecparam -genkey -name SM2 -out /tmp/enc.key
+          $OPENSSL req -new -x509 -days 365 -key /tmp/enc.key -out /tmp/enc.pem -subj "/CN=localhost" -md sm3
           echo "=== 生成的自签证书 ==="
-          ./apps/openssl x509 -in /tmp/sign.pem -noout -subject -text | grep -E "Subject|Public Key Algorithm|Signature Algorithm"
+          $OPENSSL x509 -in /tmp/sign.pem -noout -subject -text | grep -E "Subject|Public Key Algorithm|Signature Algorithm"
 
       - name: Install Tengine artifact
         run: |
@@ -172,8 +174,8 @@ jobs:
 
       - name: GM handshake via Tongsuo client
         run: |
-          cd Tongsuo-8.2.1
-          echo | ./apps/openssl s_client -connect 127.0.0.1:8443 -servername localhost \
+          OPENSSL=/tmp/tongsuo-install/bin/openssl
+          echo | $OPENSSL s_client -connect 127.0.0.1:8443 -servername localhost \
             -cipher "ECC-SM2-SM4-GCM-SM3:ECC-SM2-SM4-CBC-SM3:ECDHE-SM2-WITH-SM4-SM3" \
             2>&1 | tee /tmp/handshake.log | grep -E "Protocol|Cipher|New,|subject|issuer" | head -10
           echo "=== 断言握手结果 ==="
