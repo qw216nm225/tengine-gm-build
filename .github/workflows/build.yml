@@ -145,3 +145,103 @@ jobs:
           name: tengine-gm-aarch64
           path: dist/*.tar.gz
           retention-days: 30
+
+  # ============ 部署演练：按 README 上线教程在云端完整走一遍 ============
+  # 验证 deploy/precheck.sh、nginx-gm.conf.example 及七步流程的有效性
+  # 注意：runner 无 systemd，tengine.service 仅做语法校验，真实启停需在服务器验证
+  deploy-rehearsal:
+    runs-on: ubuntu-latest
+    needs: build-x86_64
+    steps:
+      - name: Checkout repo (deploy scripts & certs)
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tengine-gm-x86_64
+          path: dist
+
+      - name: 步骤1 演练：解压产物到 /usr/local
+        run: |
+          sudo tar xzf dist/*.tar.gz -C /usr/local
+          ls -lh /usr/local/tengine/sbin/nginx
+          /usr/local/tengine/sbin/nginx -V 2>&1 | grep -E "Tengine|ntls|Tongsuo" | head -3
+
+      - name: 步骤2a 演练：precheck 首跑（预期发现依赖缺失 FAIL）
+        run: |
+          bash deploy/precheck.sh 8443 > /tmp/precheck-1.log 2>&1 || true
+          cat /tmp/precheck-1.log | grep -E "FAIL|SKIP|PASS|WARN|提示" | head -15
+          echo ""
+          if grep -q "FAIL" /tmp/precheck-1.log; then
+            echo ">>> precheck 如预期抓出了问题（runner 环境缺 libpcre.so.1/libcrypt.so.1），进入修复步骤"
+          else
+            echo ">>> 首跑无 FAIL"
+          fi
+
+      - name: 步骤2b 演练：按预案补齐依赖（Ubuntu 24.04 场景）
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libcrypt1 zlib1g
+          # libpcre.so.1：Ubuntu 24.04 已移除 libpcre3 包，从 22.04 存档 deb 解包安装
+          wget -q http://archive.ubuntu.com/ubuntu/pool/main/p/pcre3/libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb -O /tmp/libpcre3.deb
+          mkdir -p /tmp/pcre-extract
+          dpkg -x /tmp/libpcre3.deb /tmp/pcre-extract
+          sudo cp -a /tmp/pcre-extract/usr/lib/x86_64-linux-gnu/libpcre.so.1* /usr/lib/x86_64-linux-gnu/
+          sudo ldconfig
+
+      - name: 步骤2c 演练：precheck 复跑（预期全 PASS）
+        run: |
+          bash deploy/precheck.sh 8443 2>&1 | tee /tmp/precheck-2.log
+          if grep -q "FAIL" /tmp/precheck-2.log; then
+            echo ">>> FAIL: precheck 复跑仍有阻塞项"; exit 1
+          fi
+          echo ">>> PASS: precheck 复跑通过（修复预案有效）"
+
+      - name: 步骤3 演练：放置证书
+        run: |
+          sudo mkdir -p /usr/local/tengine/conf/certs
+          sudo cp test-certs/sign.pem test-certs/sign.key test-certs/enc.pem test-certs/enc.key /usr/local/tengine/conf/certs/
+          ls -l /usr/local/tengine/conf/certs/
+
+      - name: 步骤4 演练：用模板生成 nginx.conf（端口改 8443）
+        run: |
+          sed 's/listen 443 ssl;/listen 8443 ssl;/' deploy/nginx-gm.conf.example | sudo tee /usr/local/tengine/conf/nginx.conf > /dev/null
+          echo "=== 生效配置中的国密指令 ==="
+          grep -E "enable_ntls|ssl_(sign|enc)_certificate|ssl_ciphers" /usr/local/tengine/conf/nginx.conf
+
+      - name: 步骤5a 演练：nginx -t 配置检查
+        run: |
+          sudo /usr/local/tengine/sbin/nginx -t -p /usr/local/tengine
+
+      - name: 步骤5b 演练：systemd 单元语法校验（runner 无 systemd 运行环境）
+        run: |
+          sudo apt-get install -y -qq systemd
+          sudo systemd-analyze verify deploy/tengine.service 2>&1 | head -10
+          echo ">>> tengine.service 语法校验完成（实际启停请在真实服务器执行 systemctl enable --now tengine）"
+
+      - name: 步骤5c 演练：启动 Tengine
+        run: |
+          sudo /usr/local/tengine/sbin/nginx -p /usr/local/tengine
+          sleep 1
+          ps aux | grep "[n]ginx" | head -3
+
+      - name: 步骤6 演练：GmSSL 国密握手验证（等价 README 验证章节）
+        run: |
+          sudo apt-get install -y -qq cmake gcc
+          wget -q -c https://github.com/guanzhi/GmSSL/archive/refs/tags/v3.1.1.tar.gz -O gmssl.tar.gz
+          tar xzf gmssl.tar.gz
+          cd GmSSL-3.1.1
+          cmake -S . -B build > /dev/null 2>&1
+          cmake --build build -j"$(nproc)" > /dev/null 2>&1
+          echo "=== 国密握手（等价 README 步骤 6 命令）==="
+          echo | ./build/bin/gmssl tlcp_client -host 127.0.0.1 -port 8443 | head -3
+          echo | ./build/bin/gmssl tlcp_client -host 127.0.0.1 -port 8443 2>&1 | grep -q "Connection established" \
+            && echo ">>> PASS: 部署演练完整通过（解压->体检->修复->证书->配置->启动->国密握手）" \
+            || { echo ">>> FAIL: 握手失败"; exit 1; }
+
+      - name: 步骤7 演练：清理（模拟回滚：停止并移除）
+        run: |
+          sudo /usr/local/tengine/sbin/nginx -s quit -p /usr/local/tengine || true
+          sudo rm -rf /usr/local/tengine
+          echo ">>> 回滚演练完成（停止服务并移除安装目录，旧服务不受影响）"
