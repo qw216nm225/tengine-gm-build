@@ -193,8 +193,10 @@ jobs:
           ls -lh /tmp/libpcre3.deb
           mkdir -p /tmp/pcre-extract
           dpkg -x /tmp/libpcre3.deb /tmp/pcre-extract
-          sudo cp -a /tmp/pcre-extract/usr/lib/x86_64-linux-gnu/libpcre.so.1* /usr/lib/x86_64-linux-gnu/
+          # 22.04 deb 内部路径可能是 /lib/ 前缀，用 find 自适应定位所有 libpcre.so.1* 文件
+          sudo find /tmp/pcre-extract -name "libpcre.so.1*" -exec cp -a {} /usr/lib/x86_64-linux-gnu/ \;
           sudo ldconfig
+          ls -l /usr/lib/x86_64-linux-gnu/libpcre.so.1*
 
       - name: 步骤2c 演练：precheck 复跑（预期全 PASS）
         run: |
