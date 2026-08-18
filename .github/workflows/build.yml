@@ -4,18 +4,23 @@ name: Build GM Nginx (Tengine + Tongsuo)
 # 产物：x86_64（CentOS 7 兼容，glibc 2.17）+ aarch64（麒麟 V10/UOS 兼容，glibc 2.28）
 # 组合：Tengine 2.4.1 + Tongsuo 8.2.1，模块 ngx_tongsuo_ntls（国密 NTLS）
 #
-# 设计说明：编译在旧 glibc 容器内进行（保证产物兼容老系统），
-# 产物通过挂载卷落到 runner 原生目录，上传 action 跑在原生环境
-# （规避 GitHub 将 action 强制到 Node 24 后与 centos:7 容器 glibc 2.17 不兼容的问题）
+# 设计说明：
+# 1. 编译在旧 glibc 容器内进行（保证产物兼容老系统），产物通过挂载卷落到 runner 原生目录，
+#    上传 action 跑在原生环境（规避 GitHub 将 action 强制 Node 24 与 centos:7 glibc 2.17 不兼容）
+# 2. 国密握手自测直接在 CentOS 7 编译容器内完成：容器原生自带 libpcre/libcrypt/libz，
+#    完全绕开 Ubuntu 24.04 验证环境的依赖问题（该环境已移除 libpcre3 等老库包）
 
 on:
   workflow_dispatch: # 手动触发
 
 jobs:
-  # ============ x86_64：CentOS 7 服务器用 ============
+  # ============ x86_64：CentOS 7 服务器用（含容器内国密握手自测）============
   build-x86_64:
     runs-on: ubuntu-latest # x64 runner
     steps:
+      - name: Checkout repo (test certs & selfcheck conf)
+        uses: actions/checkout@v4
+
       - name: Build in CentOS 7 container (glibc 2.17)
         run: |
           docker run --rm -v "$PWD:/work" -w /work centos:7.9.2009 bash -c '
@@ -40,6 +45,22 @@ jobs:
               --with-stream_ssl_module
             make -j"$(nproc)"
             make install
+
+            # ===== 自测：容器内启动 Tengine + Tongsuo 客户端国密握手（环境自洽零额外依赖）=====
+            echo "=== 自测 1/3：启用自测配置 ==="
+            cp /work/ci/nginx-selfcheck.conf /work/install/tengine/conf/nginx.conf
+            echo "=== 自测 2/3：配置检查并启动 ==="
+            /work/install/tengine/sbin/nginx -t
+            /work/install/tengine/sbin/nginx
+            sleep 1
+            echo "=== 自测 3/3：国密握手（Tongsuo CLI）==="
+            export LD_LIBRARY_PATH=/work/Tongsuo-8.2.1
+            echo | /work/Tongsuo-8.2.1/apps/openssl s_client -connect 127.0.0.1:8443 -servername localhost \
+              -cipher "ECC-SM2-SM4-GCM-SM3:ECC-SM2-SM4-CBC-SM3:ECDHE-SM2-WITH-SM4-SM3" \
+              2>&1 | tee /work/handshake.log | grep -E "Protocol|Cipher" | head -5
+            grep -qE "Cipher\s+: (ECC-SM2|ECDHE-SM2)" /work/handshake.log \
+              && echo "PASS: 国密握手成功（SM2 套件协商完成）" \
+              || { echo "FAIL: 未协商出国密套件"; cat /work/handshake.log; exit 1; }
           '
 
       - name: Package artifact
@@ -95,110 +116,3 @@ jobs:
           name: tengine-gm-aarch64
           path: dist/*.tar.gz
           retention-days: 30
-
-  # ============ 云端自测：自签 SM2 证书 + 国密握手验证 ============
-  verify-gm-handshake:
-    runs-on: ubuntu-latest
-    needs: build-x86_64 # 用 x86_64 产物做功能自测
-    steps:
-      - name: Checkout repo (test certs)
-        uses: actions/checkout@v4
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tengine-gm-x86_64
-          path: dist
-
-      - name: Install build deps for Tongsuo CLI
-        run: |
-          sudo apt-get update -qq
-          # Tengine 产物（CentOS 7 编译）的动态依赖在 Ubuntu 24.04 上的对应包：
-          #   libcrypt.so.1 -> libcrypt1（glibc 2.39 已从主包拆出）
-          #   libz.so.1     -> zlib1g（默认自带，显式安装保险）
-          sudo apt-get install -y -qq gcc make libcrypt1 zlib1g
-          #   libpcre.so.1 -> Ubuntu 24.04 已整体移除 libpcre3（PCRE1 EOL），apt 装不到。
-          #   从 Ubuntu 22.04 存档 pool 下载 deb（文件名已本地探测确认），
-          #   用 dpkg -x 暴力解包 + 手动铺库 + ldconfig（绕开 dpkg -i 的安装逻辑）
-          wget -q http://archive.ubuntu.com/ubuntu/pool/main/p/pcre3/libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb -O /tmp/libpcre3.deb
-          mkdir -p /tmp/pcre-extract
-          dpkg -x /tmp/libpcre3.deb /tmp/pcre-extract
-          sudo cp -a /tmp/pcre-extract/usr/lib/x86_64-linux-gnu/libpcre.so.1* /usr/lib/x86_64-linux-gnu/
-          sudo ldconfig
-          ls -l /usr/lib/x86_64-linux-gnu/libpcre.so.1
-
-      - name: Build Tongsuo CLI (with NTLS)
-        run: |
-          wget -q -c https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz -O tongsuo.tar.gz
-          tar xzf tongsuo.tar.gz
-          cd Tongsuo-8.2.1
-          # Tongsuo 8.x 的 NTLS（国密 TLS）默认开启，无需额外选项
-          ./config --prefix=/tmp/tongsuo-install
-          make -j"$(nproc)" > /tmp/tongsuo-make.log 2>&1
-          make install_sw > /dev/null 2>&1
-          ls -lh /tmp/tongsuo-install/bin/openssl
-
-      - name: Verify local SM2 test certs
-        run: |
-          # Tongsuo 安装版 CLI 的动态库：显式指向 install lib64 与源码树（防 rpath 缺失）
-          export LD_LIBRARY_PATH=/tmp/tongsuo-install/lib64:/tmp/tongsuo-install/lib:$PWD/Tongsuo-8.2.1
-          OPENSSL=/tmp/tongsuo-install/bin/openssl
-          echo "=== CLI 自检 ==="
-          $OPENSSL version || { echo "install 版 CLI 不可用，尝试源码树版"; OPENSSL=$PWD/Tongsuo-8.2.1/apps/openssl; $OPENSSL version; }
-          ls -lh test-certs/
-          echo "=== 证书算法检查（需为 SM2-with-SM3）==="
-          for f in test-certs/sign.pem test-certs/enc.pem; do
-            $OPENSSL x509 -in "$f" -noout -subject -text | grep -E "Subject|Signature Algorithm|Public Key Algorithm"
-          done
-
-      - name: Install Tengine artifact
-        run: |
-          sudo tar xzf dist/*.tar.gz -C /usr/local
-          ls -lh /usr/local/tengine/sbin/nginx
-          /usr/local/tengine/sbin/nginx -V 2>&1 | head -3
-
-      - name: Configure nginx (GM dual-cert)
-        run: |
-          sudo mkdir -p /usr/local/tengine/conf/certs
-          sudo cp test-certs/sign.pem test-certs/sign.key test-certs/enc.pem test-certs/enc.key /usr/local/tengine/conf/certs/
-          sudo tee /usr/local/tengine/conf/nginx.conf > /dev/null <<'EOF'
-          worker_processes 1;
-          pid /tmp/tengine.pid;
-          error_log /tmp/tengine-error.log;
-          events { worker_connections 128; }
-          http {
-            server {
-              listen 8443 ssl;
-              server_name localhost;
-              enable_ntls on;
-              ssl_sign_certificate      conf/certs/sign.pem;
-              ssl_sign_certificate_key  conf/certs/sign.key;
-              ssl_enc_certificate       conf/certs/enc.pem;
-              ssl_enc_certificate_key   conf/certs/enc.key;
-              ssl_protocols TLSv1.2 TLSv1.3;
-              ssl_ciphers ECC-SM2-SM4-CBC-SM3:ECC-SM2-SM4-GCM-SM3:ECDHE-SM2-WITH-SM4-SM3;
-              location / { return 200 "gm-ok"; }
-            }
-          }
-          EOF
-
-      - name: Test config and start nginx
-        run: |
-          sudo /usr/local/tengine/sbin/nginx -p /usr/local/tengine -t
-          sudo /usr/local/tengine/sbin/nginx -p /usr/local/tengine
-          sleep 1
-          echo "=== nginx 启动状态 ==="
-          ps aux | grep -c "[n]ginx"
-
-      - name: GM handshake via Tongsuo client
-        run: |
-          export LD_LIBRARY_PATH=/tmp/tongsuo-install/lib64:/tmp/tongsuo-install/lib:$PWD/Tongsuo-8.2.1
-          OPENSSL=/tmp/tongsuo-install/bin/openssl
-          $OPENSSL version || { OPENSSL=$PWD/Tongsuo-8.2.1/apps/openssl; }
-          echo | $OPENSSL s_client -connect 127.0.0.1:8443 -servername localhost \
-            -cipher "ECC-SM2-SM4-GCM-SM3:ECC-SM2-SM4-CBC-SM3:ECDHE-SM2-WITH-SM4-SM3" \
-            2>&1 | tee /tmp/handshake.log | grep -E "Protocol|Cipher|New,|subject|issuer" | head -10
-          echo "=== 断言握手结果 ==="
-          grep -qE "Cipher\s+: ECC-SM2|Cipher\s+: ECDHE-SM2" /tmp/handshake.log \
-            && echo "PASS: 国密握手成功（SM2 套件协商完成）" \
-            || { echo "FAIL: 未协商出国密套件"; cat /tmp/handshake.log; exit 1; }
