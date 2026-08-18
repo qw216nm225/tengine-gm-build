@@ -113,8 +113,11 @@ jobs:
       - name: Install build deps for Tongsuo CLI
         run: |
           sudo apt-get update -qq
-          # libpcre3 提供 libpcre.so.1：Tengine 产物的动态依赖（Ubuntu 24.04 默认只有 pcre2）
-          sudo apt-get install -y -qq gcc make libpcre3
+          # Tengine 产物（CentOS 7 编译）的动态依赖在 Ubuntu 24.04 上的对应包：
+          #   libpcre.so.1  -> libpcre3（默认只有 pcre2）
+          #   libcrypt.so.1 -> libcrypt1（glibc 2.39 已从主包拆出）
+          #   libz.so.1     -> zlib1g（默认自带，显式安装保险）
+          sudo apt-get install -y -qq gcc make libpcre3 libcrypt1 zlib1g
 
       - name: Build Tongsuo CLI (with NTLS)
         run: |
