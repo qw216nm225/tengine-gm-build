@@ -118,8 +118,12 @@ jobs:
           #   libz.so.1     -> zlib1g（默认自带，显式安装保险）
           sudo apt-get install -y -qq gcc make libcrypt1 zlib1g
           #   libpcre.so.1 -> Ubuntu 24.04 已整体移除 libpcre3（PCRE1 EOL），apt 装不到。
-          #   改从 Ubuntu 22.04 存档 pool 直装 deb（仅运行库，ABI 兼容，CentOS 7 同款 PCRE1 系）
-          wget -q http://archive.ubuntu.com/ubuntu/pool/main/p/pcre3/libpcre3_8.39-13build4_amd64.deb -O /tmp/libpcre3.deb
+          #   改从 Ubuntu 22.04 存档 pool 直装 deb（仅运行库，ABI 兼容，CentOS 7 同款 PCRE1 系）。
+          #   文件名不写死：先抓 pool 目录列表动态解析（8.39 系任意版本 ABI 相同）
+          wget -q http://archive.ubuntu.com/ubuntu/pool/main/p/pcre3/ -O /tmp/pcre3-index.html
+          PCRE_DEB=$(grep -oE 'libpcre3_8\.39-[0-9a-z.]+_amd64\.deb' /tmp/pcre3-index.html | sort -u | head -1)
+          echo "解析到 deb: $PCRE_DEB"
+          wget -q "http://archive.ubuntu.com/ubuntu/pool/main/p/pcre3/$PCRE_DEB" -O /tmp/libpcre3.deb
           sudo dpkg -i /tmp/libpcre3.deb
           ls -l /lib/x86_64-linux-gnu/libpcre.so.1
 
