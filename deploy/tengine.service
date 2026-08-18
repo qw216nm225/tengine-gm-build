@@ -1,0 +1,27 @@
+# ============================================================
+# 国密 Tengine systemd 服务单元
+# 安装：cp tengine.service /etc/systemd/system/ && systemctl daemon-reload
+# 启用开机自启：systemctl enable tengine
+# 注意：所有 Exec 指令必须带 -p /usr/local/tengine
+#      （产物编译时 prefix 为编译容器内路径，须用 -p 覆盖）
+# ============================================================
+[Unit]
+Description=Tengine (GM/NTLS) - High Performance Web Server
+Documentation=https://tengine.taobao.org/
+After=network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+# 启动前先做配置检查，失败则拒绝启动（保护机制）
+ExecStartPre=/usr/local/tengine/sbin/nginx -t -p /usr/local/tengine
+ExecStart=/usr/local/tengine/sbin/nginx -p /usr/local/tengine
+ExecReload=/usr/local/tengine/sbin/nginx -s reload -p /usr/local/tengine
+ExecStop=/usr/local/tengine/sbin/nginx -s quit -p /usr/local/tengine
+PIDFile=/usr/local/tengine/logs/nginx.pid
+PrivateTmp=true
+LimitNOFILE=65535
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
