@@ -95,3 +95,87 @@ jobs:
           name: tengine-gm-aarch64
           path: dist/*.tar.gz
           retention-days: 30
+
+  # ============ 云端自测：自签 SM2 证书 + 国密握手验证 ============
+  verify-gm-handshake:
+    runs-on: ubuntu-latest
+    needs: build-x86_64 # 用 x86_64 产物做功能自测
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tengine-gm-x86_64
+          path: dist
+
+      - name: Install build deps for Tongsuo CLI
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc make
+
+      - name: Build Tongsuo CLI (with NTLS)
+        run: |
+          wget -q -c https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz -O tongsuo.tar.gz
+          tar xzf tongsuo.tar.gz
+          cd Tongsuo-8.2.1
+          ./config --prefix=/tmp/tongsuo-install enable-ntls
+          make -j"$(nproc)" apps/openssl
+
+      - name: Generate self-signed SM2 certs
+        run: |
+          cd Tongsuo-8.2.1
+          ./apps/openssl ecparam -genkey -name SM2 -out /tmp/sign.key
+          ./apps/openssl req -new -x509 -days 365 -key /tmp/sign.key -out /tmp/sign.pem -subj "/CN=localhost" -md sm3
+          ./apps/openssl ecparam -genkey -name SM2 -out /tmp/enc.key
+          ./apps/openssl req -new -x509 -days 365 -key /tmp/enc.key -out /tmp/enc.pem -subj "/CN=localhost" -md sm3
+          echo "=== 生成的自签证书 ==="
+          ./apps/openssl x509 -in /tmp/sign.pem -noout -subject -text | grep -E "Subject|Public Key Algorithm|Signature Algorithm"
+
+      - name: Install Tengine artifact
+        run: |
+          sudo tar xzf dist/*.tar.gz -C /usr/local
+          ls -lh /usr/local/tengine/sbin/nginx
+          /usr/local/tengine/sbin/nginx -V 2>&1 | head -3
+
+      - name: Configure nginx (GM dual-cert)
+        run: |
+          sudo mkdir -p /usr/local/tengine/conf/certs
+          sudo cp /tmp/sign.pem /tmp/sign.key /tmp/enc.pem /tmp/enc.key /usr/local/tengine/conf/certs/
+          sudo tee /usr/local/tengine/conf/nginx.conf > /dev/null <<'EOF'
+          worker_processes 1;
+          pid /tmp/tengine.pid;
+          error_log /tmp/tengine-error.log;
+          events { worker_connections 128; }
+          http {
+            server {
+              listen 8443 ssl;
+              server_name localhost;
+              enable_ntls on;
+              ssl_sign_certificate      conf/certs/sign.pem;
+              ssl_sign_certificate_key  conf/certs/sign.key;
+              ssl_enc_certificate       conf/certs/enc.pem;
+              ssl_enc_certificate_key   conf/certs/enc.key;
+              ssl_protocols TLSv1.2 TLSv1.3;
+              ssl_ciphers ECC-SM2-SM4-CBC-SM3:ECC-SM2-SM4-GCM-SM3:ECDHE-SM2-WITH-SM4-SM3;
+              location / { return 200 "gm-ok"; }
+            }
+          }
+          EOF
+
+      - name: Test config and start nginx
+        run: |
+          sudo /usr/local/tengine/sbin/nginx -p /usr/local/tengine -t
+          sudo /usr/local/tengine/sbin/nginx -p /usr/local/tengine
+          sleep 1
+          echo "=== nginx 启动状态 ==="
+          ps aux | grep -c "[n]ginx"
+
+      - name: GM handshake via Tongsuo client
+        run: |
+          cd Tongsuo-8.2.1
+          echo | ./apps/openssl s_client -connect 127.0.0.1:8443 -servername localhost \
+            -cipher "ECC-SM2-SM4-GCM-SM3:ECC-SM2-SM4-CBC-SM3:ECDHE-SM2-WITH-SM4-SM3" \
+            2>&1 | tee /tmp/handshake.log | grep -E "Protocol|Cipher|New,|subject|issuer" | head -10
+          echo "=== 断言握手结果 ==="
+          grep -qE "Cipher\s+: ECC-SM2|Cipher\s+: ECDHE-SM2" /tmp/handshake.log \
+            && echo "PASS: 国密握手成功（SM2 套件协商完成）" \
+            || { echo "FAIL: 未协商出国密套件"; cat /tmp/handshake.log; exit 1; }
