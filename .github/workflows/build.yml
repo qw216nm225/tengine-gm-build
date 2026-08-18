@@ -47,6 +47,12 @@ jobs:
             make install
 
             # ===== 自测：容器内启动 Tengine + Tongsuo 客户端国密握手（环境自洽零额外依赖）=====
+            echo "=== 诊断：Tongsuo s_client 可用选项 ==="
+            /work/Tongsuo-8.2.1/apps/openssl s_client -help 2>&1 | grep -iE "sigalg|cipher|group|curves|tls1" | head -12
+            echo "=== 诊断：Tongsuo 官方 NTLS 测试中的 s_client 用法 ==="
+            ls /work/Tongsuo-8.2.1/test/ 2>/dev/null | grep -iE "ntls" | head -5
+            grep -rlE "ECC-SM2|ntls" /work/Tongsuo-8.2.1/test/ 2>/dev/null | head -5
+            grep -rhE "s_client.*(ECC-SM2|ntls|SM2)" /work/Tongsuo-8.2.1/test/ 2>/dev/null | head -8
             echo "=== 自测 1/3：启用自测配置 ==="
             cp /work/ci/nginx-selfcheck.conf /work/install/tengine/conf/nginx.conf
             echo "=== 自测 2/3：配置检查并启动 ==="
