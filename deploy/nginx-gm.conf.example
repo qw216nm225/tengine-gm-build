@@ -36,17 +36,17 @@ http {
         # --- 国密开关（Tengine 特有指令）---
         enable_ntls on;
 
-        # --- 国密 SM2 签名证书 ---
-        ssl_sign_certificate      conf/certs/sign.pem;
-        ssl_sign_certificate_key  conf/certs/sign.key;
+        # --- 国密 SM2 签名证书（相对路径基准为 prefix/conf/，故写 certs/ 即可）---
+        ssl_sign_certificate      certs/sign.pem;
+        ssl_sign_certificate_key  certs/sign.key;
 
         # --- 国密 SM2 加密证书 ---
-        ssl_enc_certificate       conf/certs/enc.pem;
-        ssl_enc_certificate_key   conf/certs/enc.key;
+        ssl_enc_certificate       certs/enc.pem;
+        ssl_enc_certificate_key   certs/enc.key;
 
         # --- RSA 证书（普通浏览器走这通道；暂无 RSA 证书则注释以下两行）---
-        # ssl_certificate           conf/certs/server.pem;
-        # ssl_certificate_key       conf/certs/server.key;
+        # ssl_certificate           certs/server.pem;
+        # ssl_certificate_key       certs/server.key;
 
         ssl_protocols TLSv1.2 TLSv1.3;
         # 国密套件 + RSA 套件混合（有 RSA 证书时取消注释国际套件部分）
