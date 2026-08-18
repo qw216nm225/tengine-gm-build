@@ -1,0 +1,71 @@
+# ============================================================
+# 国密 Tengine 生产配置模板（RSA + SM2 双证书）
+# 覆盖 /usr/local/tengine/conf/nginx.conf 使用
+# 证书目录建议：/usr/local/tengine/conf/certs/
+#   sign.pem / sign.key   SM2 签名证书与私钥（含证书链的 pem）
+#   enc.pem  / enc.key    SM2 加密证书与私钥（含证书链的 pem）
+#   server.pem / server.key  RSA 证书与私钥（可选，供普通浏览器）
+# 修改点：server_name、证书文件名、location 转发目标
+# ============================================================
+# user nginx;                    # 降权运行时取消注释（需 useradd -r nginx 且 logs 目录可写）
+worker_processes auto;
+error_log  logs/error.log  notice;
+pid        logs/nginx.pid;
+
+events {
+    worker_connections 65535;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+    access_log  logs/access.log  main;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    # ============ 国密 + RSA 双证书站点 ============
+    server {
+        listen 443 ssl;
+        server_name yourdomain.com;      # 改成实际域名
+
+        # --- 国密开关（Tengine 特有指令）---
+        enable_ntls on;
+
+        # --- 国密 SM2 签名证书 ---
+        ssl_sign_certificate      conf/certs/sign.pem;
+        ssl_sign_certificate_key  conf/certs/sign.key;
+
+        # --- 国密 SM2 加密证书 ---
+        ssl_enc_certificate       conf/certs/enc.pem;
+        ssl_enc_certificate_key   conf/certs/enc.key;
+
+        # --- RSA 证书（普通浏览器走这通道；暂无 RSA 证书则注释以下两行）---
+        # ssl_certificate           conf/certs/server.pem;
+        # ssl_certificate_key       conf/certs/server.key;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        # 国密套件 + RSA 套件混合（有 RSA 证书时取消注释国际套件部分）
+        ssl_ciphers ECC-SM2-SM4-CBC-SM3:ECC-SM2-SM4-GCM-SM3:ECDHE-SM2-WITH-SM4-SM3:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers on;
+        ssl_session_cache    shared:SSL:10m;
+        ssl_session_timeout  10m;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        # --- 反向代理示例（取消注释使用）---
+        # location /api/ {
+        #     proxy_pass http://127.0.0.1:8080;
+        #     proxy_set_header Host $host;
+        #     proxy_set_header X-Real-IP $remote_addr;
+        #     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # }
+    }
+}
