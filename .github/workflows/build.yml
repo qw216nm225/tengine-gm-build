@@ -113,7 +113,8 @@ jobs:
       - name: Install build deps for Tongsuo CLI
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gcc make
+          # libpcre3 提供 libpcre.so.1：Tengine 产物的动态依赖（Ubuntu 24.04 默认只有 pcre2）
+          sudo apt-get install -y -qq gcc make libpcre3
 
       - name: Build Tongsuo CLI (with NTLS)
         run: |
