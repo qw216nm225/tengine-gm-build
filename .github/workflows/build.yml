@@ -117,8 +117,9 @@ jobs:
           wget -q -c https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz -O tongsuo.tar.gz
           tar xzf tongsuo.tar.gz
           cd Tongsuo-8.2.1
-          ./config --prefix=/tmp/tongsuo-install enable-ntls
-          make -j"$(nproc)" apps/openssl
+          # Tongsuo 8.x 的 NTLS（国密 TLS）默认开启，无需额外选项
+          ./config --prefix=/tmp/tongsuo-install
+          make -j"$(nproc)"
 
       - name: Generate self-signed SM2 certs
         run: |
