@@ -101,6 +101,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-x86_64 # 用 x86_64 产物做功能自测
     steps:
+      - name: Checkout repo (test certs)
+        uses: actions/checkout@v4
+
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
@@ -119,19 +122,18 @@ jobs:
           cd Tongsuo-8.2.1
           # Tongsuo 8.x 的 NTLS（国密 TLS）默认开启，无需额外选项
           ./config --prefix=/tmp/tongsuo-install
-          make -j"$(nproc)"
+          make -j"$(nproc)" > /tmp/tongsuo-make.log 2>&1
+          make install_sw > /dev/null 2>&1
+          ls -lh /tmp/tongsuo-install/bin/openssl
 
-      - name: Generate self-signed SM2 certs
+      - name: Verify local SM2 test certs
         run: |
-          cd Tongsuo-8.2.1
-          make install_sw > /dev/null
           OPENSSL=/tmp/tongsuo-install/bin/openssl
-          $OPENSSL ecparam -genkey -name SM2 -out /tmp/sign.key
-          $OPENSSL req -new -x509 -days 365 -key /tmp/sign.key -out /tmp/sign.pem -subj "/CN=localhost" -md sm3
-          $OPENSSL ecparam -genkey -name SM2 -out /tmp/enc.key
-          $OPENSSL req -new -x509 -days 365 -key /tmp/enc.key -out /tmp/enc.pem -subj "/CN=localhost" -md sm3
-          echo "=== 生成的自签证书 ==="
-          $OPENSSL x509 -in /tmp/sign.pem -noout -subject -text | grep -E "Subject|Public Key Algorithm|Signature Algorithm"
+          ls -lh test-certs/
+          echo "=== 证书算法检查（需为 SM2-with-SM3）==="
+          for f in test-certs/sign.pem test-certs/enc.pem; do
+            $OPENSSL x509 -in "$f" -noout -subject -text | grep -E "Subject|Signature Algorithm|Public Key Algorithm"
+          done
 
       - name: Install Tengine artifact
         run: |
@@ -142,7 +144,7 @@ jobs:
       - name: Configure nginx (GM dual-cert)
         run: |
           sudo mkdir -p /usr/local/tengine/conf/certs
-          sudo cp /tmp/sign.pem /tmp/sign.key /tmp/enc.pem /tmp/enc.key /usr/local/tengine/conf/certs/
+          sudo cp test-certs/sign.pem test-certs/sign.key test-certs/enc.pem test-certs/enc.key /usr/local/tengine/conf/certs/
           sudo tee /usr/local/tengine/conf/nginx.conf > /dev/null <<'EOF'
           worker_processes 1;
           pid /tmp/tengine.pid;
