@@ -269,6 +269,7 @@ jobs:
             perl
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-pcre
 
       - name: Download sources
         shell: msys2 {0}
@@ -276,8 +277,7 @@ jobs:
           # msys2 curl 访问 github.com 下载被拒（9 字节 404），改用 git 深度克隆 tag
           git clone --depth 1 --branch 2.4.1 https://github.com/alibaba/tengine.git
           git clone --depth 1 --branch 8.2.1 https://github.com/Tongsuo-Project/Tongsuo.git
-          git clone --depth 1 --branch pcre-8.45 https://github.com/PCRE2Project/pcre.git
-          ls -d tengine Tongsuo pcre
+          ls -d tengine Tongsuo
 
       - name: Build Tongsuo (MinGW64, NTLS)
         shell: msys2 {0}
@@ -294,7 +294,6 @@ jobs:
             --add-module=modules/ngx_tongsuo_ntls \
             --with-openssl=../Tongsuo \
             --with-openssl-opt="enable-ntls" \
-            --with-pcre=../pcre \
             --with-http_ssl_module \
             --with-http_realip_module \
             --with-http_stub_status_module \
@@ -309,6 +308,7 @@ jobs:
           cp ci/nginx-selfcheck-win.conf /tmp/tengine-win64/conf/nginx.conf
           mkdir -p /tmp/tengine-win64/conf/certs
           cp test-certs/sign.pem test-certs/sign.key test-certs/enc.pem test-certs/enc.key /tmp/tengine-win64/conf/certs/
+          cp /mingw64/bin/libpcre-1.dll /tmp/tengine-win64/
           /tmp/tengine-win64/nginx.exe -t -p /tmp/tengine-win64/
 
       - name: Package artifact (zip)
@@ -338,6 +338,7 @@ jobs:
             perl
             mingw-w64-i686-gcc
             mingw-w64-i686-zlib
+            mingw-w64-i686-pcre
 
       - name: Download sources
         shell: msys2 {0}
@@ -345,8 +346,7 @@ jobs:
           # msys2 curl 访问 github.com 下载被拒（9 字节 404），改用 git 深度克隆 tag
           git clone --depth 1 --branch 2.4.1 https://github.com/alibaba/tengine.git
           git clone --depth 1 --branch 8.2.1 https://github.com/Tongsuo-Project/Tongsuo.git
-          git clone --depth 1 --branch pcre-8.45 https://github.com/PCRE2Project/pcre.git
-          ls -d tengine Tongsuo pcre
+          ls -d tengine Tongsuo
 
       - name: Build Tongsuo (MinGW32, NTLS)
         shell: msys2 {0}
@@ -363,7 +363,6 @@ jobs:
             --add-module=modules/ngx_tongsuo_ntls \
             --with-openssl=../Tongsuo \
             --with-openssl-opt="enable-ntls" \
-            --with-pcre=../pcre \
             --with-http_ssl_module \
             --with-http_realip_module \
             --with-http_stub_status_module \
@@ -378,6 +377,7 @@ jobs:
           cp ci/nginx-selfcheck-win.conf /tmp/tengine-win32/conf/nginx.conf
           mkdir -p /tmp/tengine-win32/conf/certs
           cp test-certs/sign.pem test-certs/sign.key test-certs/enc.pem test-certs/enc.key /tmp/tengine-win32/conf/certs/
+          cp /mingw32/bin/libpcre-1.dll /tmp/tengine-win32/
           /tmp/tengine-win32/nginx.exe -t -p /tmp/tengine-win32/
 
       - name: Package artifact (zip)
