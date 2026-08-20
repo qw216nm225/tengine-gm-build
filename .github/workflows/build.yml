@@ -273,29 +273,28 @@ jobs:
       - name: Download sources
         shell: msys2 {0}
         run: |
-          curl -L -o tengine-2.4.1.tar.gz https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz
-          curl -L -o Tongsuo-8.2.1.tar.gz https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz
-          curl -L -o pcre-8.45.tar.gz https://github.com/PCRE2Project/pcre/archive/refs/tags/pcre-8.45.tar.gz
-          tar xzf tengine-2.4.1.tar.gz
-          tar xzf Tongsuo-8.2.1.tar.gz
-          tar xzf pcre-8.45.tar.gz
+          # msys2 curl 访问 github.com 下载被拒（9 字节 404），改用 git 深度克隆 tag
+          git clone --depth 1 --branch 2.4.1 https://github.com/alibaba/tengine.git
+          git clone --depth 1 --branch 8.2.1 https://github.com/Tongsuo-Project/Tongsuo.git
+          git clone --depth 1 --branch pcre-8.45 https://github.com/PCRE2Project/pcre.git
+          ls -d tengine Tongsuo pcre
 
       - name: Build Tongsuo (MinGW64, NTLS)
         shell: msys2 {0}
         run: |
-          cd Tongsuo-8.2.1
+          cd Tongsuo
           perl Configure mingw64 enable-ntls --prefix=/tmp/tongsuo-install no-shared
           make -j"$(nproc)" build_libs
 
       - name: Build Tengine (GM module, static pcre)
         shell: msys2 {0}
         run: |
-          cd tengine-2.4.1
+          cd tengine
           ./configure --prefix=/tmp/tengine-win64 \
             --add-module=modules/ngx_tongsuo_ntls \
-            --with-openssl=../Tongsuo-8.2.1 \
+            --with-openssl=../Tongsuo \
             --with-openssl-opt="enable-ntls" \
-            --with-pcre=../pcre-8.45 \
+            --with-pcre=../pcre \
             --with-http_ssl_module \
             --with-http_realip_module \
             --with-http_stub_status_module \
@@ -343,29 +342,28 @@ jobs:
       - name: Download sources
         shell: msys2 {0}
         run: |
-          curl -L -o tengine-2.4.1.tar.gz https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz
-          curl -L -o Tongsuo-8.2.1.tar.gz https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz
-          curl -L -o pcre-8.45.tar.gz https://github.com/PCRE2Project/pcre/archive/refs/tags/pcre-8.45.tar.gz
-          tar xzf tengine-2.4.1.tar.gz
-          tar xzf Tongsuo-8.2.1.tar.gz
-          tar xzf pcre-8.45.tar.gz
+          # msys2 curl 访问 github.com 下载被拒（9 字节 404），改用 git 深度克隆 tag
+          git clone --depth 1 --branch 2.4.1 https://github.com/alibaba/tengine.git
+          git clone --depth 1 --branch 8.2.1 https://github.com/Tongsuo-Project/Tongsuo.git
+          git clone --depth 1 --branch pcre-8.45 https://github.com/PCRE2Project/pcre.git
+          ls -d tengine Tongsuo pcre
 
       - name: Build Tongsuo (MinGW32, NTLS)
         shell: msys2 {0}
         run: |
-          cd Tongsuo-8.2.1
+          cd Tongsuo
           perl Configure mingw enable-ntls --prefix=/tmp/tongsuo-install no-shared
           make -j"$(nproc)" build_libs
 
       - name: Build Tengine (GM module, static pcre)
         shell: msys2 {0}
         run: |
-          cd tengine-2.4.1
+          cd tengine
           ./configure --prefix=/tmp/tengine-win32 \
             --add-module=modules/ngx_tongsuo_ntls \
-            --with-openssl=../Tongsuo-8.2.1 \
+            --with-openssl=../Tongsuo \
             --with-openssl-opt="enable-ntls" \
-            --with-pcre=../pcre-8.45 \
+            --with-pcre=../pcre \
             --with-http_ssl_module \
             --with-http_realip_module \
             --with-http_stub_status_module \
