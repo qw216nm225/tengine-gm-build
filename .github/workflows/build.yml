@@ -251,3 +251,146 @@ jobs:
           sudo /usr/local/tengine/sbin/nginx -s quit -p /usr/local/tengine || true
           sudo rm -rf /usr/local/tengine
           echo ">>> 回滚演练完成（停止服务并移除安装目录，旧服务不受影响）"
+
+  # ============ Windows 64 位：MSYS2 + MinGW-w64 ============
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo (selfcheck conf)
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (MINGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            git
+            make
+            perl
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-zlib
+
+      - name: Download sources
+        shell: msys2 {0}
+        run: |
+          curl -L -o tengine-2.4.1.tar.gz https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz
+          curl -L -o Tongsuo-8.2.1.tar.gz https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz
+          curl -L -o pcre-8.45.tar.gz https://github.com/PCRE2Project/pcre/archive/refs/tags/pcre-8.45.tar.gz
+          tar xzf tengine-2.4.1.tar.gz
+          tar xzf Tongsuo-8.2.1.tar.gz
+          tar xzf pcre-8.45.tar.gz
+
+      - name: Build Tongsuo (MinGW64, NTLS)
+        shell: msys2 {0}
+        run: |
+          cd Tongsuo-8.2.1
+          perl Configure mingw64 enable-ntls --prefix=/tmp/tongsuo-install no-shared
+          make -j"$(nproc)" build_libs
+
+      - name: Build Tengine (GM module, static pcre)
+        shell: msys2 {0}
+        run: |
+          cd tengine-2.4.1
+          ./configure --prefix=/tmp/tengine-win64 \
+            --add-module=modules/ngx_tongsuo_ntls \
+            --with-openssl=../Tongsuo-8.2.1 \
+            --with-openssl-opt="enable-ntls" \
+            --with-pcre=../pcre-8.45 \
+            --with-http_ssl_module \
+            --with-http_realip_module \
+            --with-http_stub_status_module \
+            --with-http_gzip_static_module
+          make -j"$(nproc)"
+          make install
+
+      - name: Selfcheck (nginx -t with GM certs)
+        shell: msys2 {0}
+        run: |
+          mkdir -p /tmp/tengine-win64/logs
+          cp ci/nginx-selfcheck-win.conf /tmp/tengine-win64/conf/nginx.conf
+          mkdir -p /tmp/tengine-win64/conf/certs
+          cp test-certs/sign.pem test-certs/sign.key test-certs/enc.pem test-certs/enc.key /tmp/tengine-win64/conf/certs/
+          /tmp/tengine-win64/nginx.exe -t -p /tmp/tengine-win64/
+
+      - name: Package artifact (zip)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path C:\msys64\tmp\tengine-win64\* -DestinationPath dist\tengine-gm-2.4.1-win64.zip -Force
+          Get-ChildItem dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tengine-gm-win64
+          path: dist/*.zip
+          retention-days: 30
+
+  # ============ Windows 32 位：MSYS2 + MinGW-w32 ============
+  build-windows-x86:
+    runs-on: windows-latest
+    steps:
+      - name: Setup MSYS2 (MINGW32)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          install: >-
+            git
+            make
+            perl
+            mingw-w64-i686-gcc
+            mingw-w64-i686-zlib
+
+      - name: Download sources
+        shell: msys2 {0}
+        run: |
+          curl -L -o tengine-2.4.1.tar.gz https://github.com/alibaba/tengine/archive/refs/tags/2.4.1.tar.gz
+          curl -L -o Tongsuo-8.2.1.tar.gz https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/8.2.1.tar.gz
+          curl -L -o pcre-8.45.tar.gz https://github.com/PCRE2Project/pcre/archive/refs/tags/pcre-8.45.tar.gz
+          tar xzf tengine-2.4.1.tar.gz
+          tar xzf Tongsuo-8.2.1.tar.gz
+          tar xzf pcre-8.45.tar.gz
+
+      - name: Build Tongsuo (MinGW32, NTLS)
+        shell: msys2 {0}
+        run: |
+          cd Tongsuo-8.2.1
+          perl Configure mingw enable-ntls --prefix=/tmp/tongsuo-install no-shared
+          make -j"$(nproc)" build_libs
+
+      - name: Build Tengine (GM module, static pcre)
+        shell: msys2 {0}
+        run: |
+          cd tengine-2.4.1
+          ./configure --prefix=/tmp/tengine-win32 \
+            --add-module=modules/ngx_tongsuo_ntls \
+            --with-openssl=../Tongsuo-8.2.1 \
+            --with-openssl-opt="enable-ntls" \
+            --with-pcre=../pcre-8.45 \
+            --with-http_ssl_module \
+            --with-http_realip_module \
+            --with-http_stub_status_module \
+            --with-http_gzip_static_module
+          make -j"$(nproc)"
+          make install
+
+      - name: Selfcheck (nginx -t with GM certs)
+        shell: msys2 {0}
+        run: |
+          mkdir -p /tmp/tengine-win32/logs
+          cp ci/nginx-selfcheck-win.conf /tmp/tengine-win32/conf/nginx.conf
+          mkdir -p /tmp/tengine-win32/conf/certs
+          cp test-certs/sign.pem test-certs/sign.key test-certs/enc.pem test-certs/enc.key /tmp/tengine-win32/conf/certs/
+          /tmp/tengine-win32/nginx.exe -t -p /tmp/tengine-win32/
+
+      - name: Package artifact (zip)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path C:\msys64\tmp\tengine-win32\* -DestinationPath dist\tengine-gm-2.4.1-win32.zip -Force
+          Get-ChildItem dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tengine-gm-win32
+          path: dist/*.zip
+          retention-days: 30
